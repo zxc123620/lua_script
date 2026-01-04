@@ -1,3 +1,4 @@
+local bit = require("bit")   -- 已自带，直接 require
 -- 定义协议（协议标识符和显示名称）
 fc_proto = Proto("fcprotocol", "XLZA_FC_PROTOCOL")
 
@@ -255,11 +256,28 @@ ups_voltage_post = ProtoField.uint16("fcprotocol.ups_voltage_post", "Voltage-2",
 ups_inner_temperature =   ProtoField.uint16("fcprotocol.ups_inner_temperature", "Inner Temperature", base.DEC)
 ups_battery =   ProtoField.uint16("fcprotocol.ups_battery", "Battery", base.DEC)
 
+-- PDU数据
+pdu_proto = ProtoField.none("fcprotocol.pdu_proto", "PDU Data")
+bit_value =ProtoField.bool("fcprotocol.bit_status", "Bit Status")
+
+-- 风扇控制
+fan_proto = ProtoField.none("fcprotocol.fan_proto", "Fan Proto")
+senser_number = ProtoField.uint8("fcprotocol.number", "Number", base.DEC)
+fan_cmd = ProtoField.uint8("fcprotocol.fan_cmd", "Fan Cmd", base.DEC, {
+    [0] = "关闭风扇",
+    [1] = "开启风扇"
+})
+-- 继电器控制
+reply_proto = ProtoField.none("fcprotocol.reply_proto", "Relay Proto")
+relay_cmd = ProtoField.uint8("fcprotocol.relay_cmd", "Replay Cmd", base.DEC, {
+    [0] = "关闭继电器",
+    [1] = "开启继电器"
+})
 -- crc数据
 crc_data_proto = ProtoField.uint16("fcprotocol.crc", "Crc Data", base.HEX)
 
 -- 定义协议字段（字段标识符、显示名称、数据格式）
-fc_proto.fields = { ups_battery, ups_inner_temperature, ups_voltage_post, ups_remain_battery, ups_voltage_pre, ups_proto, ups_battery_work_status, ups_battery_power_level_status,ups_battery_charge_status, ups_charge_seconds,ups_remain_minutes,  rain_proto, today_rain,instance_rain,yesterday_rain,total_rain, hour_rain,last_hour_rain, min_24_hour_rain_range, max_24_hour_rain_range, min_24_hour_rain, max_24_hour_rain, tem_data,hum_data,  sensor_id,  sensor_type, tem_and_hum_proto, crc_data_proto, light_proto,light_id, light_control_cmd, current_time, time_year, time_month,time_day,  time_hour, time_minute,time_second,  fc_execute_result, header, device_id, function_code, data_length, speaker_proto, speaker_id, speaker_voice_type, speaker_color, speaker_color_cmd,speaker_volume, speaker_voice_cmd, speaker_playback_mode,intercom_proto,intercom_cmd,intercom_voice_type,g_net_proto ,g_net_cmd ,g_net_call_type,defence_cmd }
+fc_proto.fields = {reply_proto,relay_cmd, fan_proto, senser_number, fan_cmd, pdu_proto, bit_value, ups_battery, ups_inner_temperature, ups_voltage_post, ups_remain_battery, ups_voltage_pre, ups_proto, ups_battery_work_status, ups_battery_power_level_status,ups_battery_charge_status, ups_charge_seconds,ups_remain_minutes,  rain_proto, today_rain,instance_rain,yesterday_rain,total_rain, hour_rain,last_hour_rain, min_24_hour_rain_range, max_24_hour_rain_range, min_24_hour_rain, max_24_hour_rain, tem_data,hum_data,  sensor_id,  sensor_type, tem_and_hum_proto, crc_data_proto, light_proto,light_id, light_control_cmd, current_time, time_year, time_month,time_day,  time_hour, time_minute,time_second,  fc_execute_result, header, device_id, function_code, data_length, speaker_proto, speaker_id, speaker_voice_type, speaker_color, speaker_color_cmd,speaker_volume, speaker_voice_cmd, speaker_playback_mode,intercom_proto,intercom_cmd,intercom_voice_type,g_net_proto ,g_net_cmd ,g_net_call_type,defence_cmd }
 
 -- 核心解析函数
 function fc_proto.dissector(buffer, pinfo, tree)
@@ -327,6 +345,51 @@ function fc_proto.dissector(buffer, pinfo, tree)
             rain_data_proto:add(max_24_hour_rain_range, buffer(31,2))
             rain_data_proto:add(min_24_hour_rain, buffer(33,2))
             rain_data_proto:add(min_24_hour_rain_range, buffer(35,2))
+        -- ups 数据
+        elseif function_code_hex == ups_sensor_code_map.code then
+            local ups_proto = subtree:add(rain_proto, buffer(14, data_length_data))
+
+            ups_proto:add(sensor_id, buffer(14,1))
+            ups_proto:add(sensor_type, buffer(15,1))
+            ups_proto:add(sensor_exec_status, buffer(16,1))
+            ups_proto:add(ups_battery_work_status, buffer(17, 1))
+            ups_proto:add(ups_battery_power_level_status, buffer(18, 1))
+            ups_proto:add(ups_battery_charge_status, buffer(19, 1))
+            ups_proto:add(ups_charge_seconds, buffer(20, 2))
+            ups_proto:add(ups_remain_minutes, buffer(22, 2))
+            ups_proto:add(ups_remain_battery, buffer(24, 2))
+            ups_proto:add(ups_voltage_pre, buffer(26, 2))
+            ups_proto:add(ups_voltage_post, buffer(28, 2))
+            ups_proto:add(ups_inner_temperature, buffer(30, 2))
+            ups_proto:add(ups_battery, buffer(32, 2))
+        -- PDU数据
+        elseif function_code_hex == pdu_sensor_code_map.code then
+            local pdu_proto = subtree:add(pdu_proto, buffer(14, data_length_data))
+            pdu_proto:add(sensor_id, buffer(14,1))
+            pdu_proto:add(sensor_type, buffer(15,1))
+            pdu_proto:add(sensor_exec_status, buffer(16,1))
+            local replay_range =  buffer(17,2)
+            local overload_range =  buffer(19,2)
+            local falg_byte = replay_range:le_uint()
+            local alarm_byte = overload_range:le_uint()
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x01) == 1 and "1开启" or "1关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x02) == 1 and "2开启" or "2关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x04) == 1 and "3开启" or "3关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x08) == 1 and "4开启" or "4关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x10) == 1 and "5开启" or "5关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x20) == 1 and "6开启" or "6关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x40) == 1 and "7开启" or "7关闭")
+            pdu_proto:add(bit_value, replay_range, bit.band( falg_byte, 0x80) == 1 and "8开启" or "8关闭")
+            pdu_proto:add(bit_value, overload_range, bit.band( alarm_byte, 0x01) == 1 and "过压报警" or "正常")
+            pdu_proto:add(bit_value, overload_range, bit.band( alarm_byte, 0x02) == 1 and "欠压报警" or "正常")
+            pdu_proto:add(bit_value, overload_range, bit.band( alarm_byte, 0x04) == 1 and "过流报警" or "正常")
+            pdu_proto:add(bit_value, overload_range, bit.band( alarm_byte, 0x08) == 1 and "过功率报警" or "正常")
+        -- 门控状态
+        elseif function_code_hex == door_sensor_code_map.code then
+            local door_status_range = buffer(14,1)
+            local falg_byte = door_status_range:uint()
+            subtree:add(bit_value, door_status_range, bit.band( falg_byte, 0x01) == 1 and "前门关" or "前门开")
+            subtree:add(bit_value, door_status_range, bit.band( falg_byte, 0x02) == 1 and "后门关" or "后门开")
         end
     -- 解析QT数据部分
     elseif header_value_data == 0xe3e4  then
@@ -362,6 +425,20 @@ function fc_proto.dissector(buffer, pinfo, tree)
         -- 布撤防
         elseif function_code_hex == defence_code_map.code  then
             subtree:add(defence_cmd, buffer(14, 1))
+        -- 风扇启停
+        elseif function_code_hex == fan_sensor_code_map.code then
+            local fan_proto = subtree:add(fan_proto, buffer(14, data_length_data))
+            fan_proto:add(sensor_id, buffer(14,1))
+            fan_proto:add(sensor_type, buffer(15,1))
+            fan_proto:add(senser_number, buffer(16,1))
+            fan_proto:add(fan_cmd, buffer(17,1))
+        --  PDU控制
+        elseif function_code_hex == pdu_control_code_map.code  then
+            local replay_proto = subtree:add(reply_proto, buffer(14, data_length_data))
+            replay_proto:add(sensor_id, buffer(14,1))
+            replay_proto:add(sensor_type, buffer(15,1))
+            replay_proto:add(senser_number, buffer(16,1))
+            replay_proto:add(relay_cmd, buffer(17,1))
         -- 温湿度 雨量计
         elseif function_code_hex == tem_and_hum_code_map.code or function_code_hex == rain_sensor_code_map.code or function_code_hex == ups_sensor_code_map.code or function_code_hex == pdu_sensor_code_map.code or function_code_hex == aircondition_code_map.code  then
             subtree:add(sensor_id, buffer(14,1))
