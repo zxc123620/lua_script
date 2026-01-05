@@ -1,8 +1,2 @@
--- test_module2.lua 文件
--- module 模块为上文提到到 module.lua
--- 别名变量 m
-local m = require("module")
-
-print(m.constant)
-
-m.func3()
+local bit =  require("bit")
+print(bit.band( 239, 0x01) == 0 and "11" or "22")
