@@ -15,6 +15,8 @@ header = ProtoField.uint16("fcprotocol.header", "头部字段", base.HEX, header
 device_id = ProtoField.uint16("fcprotocol.device_id", "设备编号", base.HEX)
 -- 执行结果
 fc_execute_result = ProtoField.uint8("fcprotocol.exec_res", "执行结果", base.DEC, {
+
+    [0] = "数据无效",
     [1] = "成功",
     [2] = "设备未使能",
 	[3] = "设备未使能",
@@ -30,13 +32,13 @@ fc_execute_result = ProtoField.uint8("fcprotocol.exec_res", "执行结果", base
 	[255] = "MODBUS_ERR_NOT_MASTER",
 	[254] = "MODBUS_ERR_POLLING",
 	[253] = "MODBUS_ERR_BUFF_OVERFLOW",
-	[252] = "MODBUS_ERR_BAD_CRC",
+	[252] = "MODBUS_ERR_BAD_CRC 错误CRC校验",
 	[251] = "MODBUS_ERR_EXCEPTION",
-	[250] = "MODBUS_ERR_BAD_SIZE",
-	[249] = "MODBUS_ERR_BAD_ADDRESS",
-	[248] = "MODBUS_ERR_TIME_OUT",
+	[250] = "MODBUS_ERR_BAD_SIZE 错误大小",
+	[249] = "MODBUS_ERR_BAD_ADDRESS 错误地址",
+	[248] = "MODBUS_ERR_TIME_OUT 超时错误",
 	[247] = "MODBUS_ERR_BAD_SLAVE_ID",
-	[246] = "MODBUS_ERR_BAD_TCP_ID",
+	[246] = "MODBUS_ERR_BAD_TCP_ID 错误TCPID",
 	[245] = "MODBUS_ERR_OK_QUERY",
 	[244] = "RM8000_PHO_Err",
 	[243] = "RM8000_Error",
@@ -46,17 +48,16 @@ fc_execute_result = ProtoField.uint8("fcprotocol.exec_res", "执行结果", base
 	[239] = "YX9100_FOLDER_OVER_RANGE",
 	[238] = "YX9100_FOLDER_NOT_FIND",
 	[237] = "YX9100_DATA_ERR",
-	[236] = "DEV_NO_RESPONSE",
+	[236] = "DEV_NO_RESPONSE 设备无响应",
 	[235] = "Alarm_Music_Err",
 	[234] = "DEV_TEST_Err",
-	[233] = "Alarmled_Num_err",
+	[233] = "Alarmled_Num_err 报警编号错误",
 	[232] = "Alarmled_ACSAMP_err",
-	[231] = "M450_Disable",
-	[230] = "DEV_FUNC_Err",
-	[229] = "RM8000_TimeOut",
+	[231] = "M450_Disable 450未使能",
+	[230] = "DEV_FUNC_Err 设备功能码错误",
+	[229] = "RM8000_TimeOut G网超时",
 	[228] = "RM8000_NO_Signal",
 	[227] = "RM8000_Unrecognized_Signal"
-
 })
 -- 功能码
 heartbeat_code_map = {code = 0x00ff, value = "心跳"}
@@ -641,7 +642,8 @@ function fc_proto.dissector(buffer, pinfo, tree)
             local fan_proto = subtree:add(fan_proto, buffer(14, data_length_data))
             fan_proto:add(sensor_id, buffer(14,1))
             fan_proto:add(sensor_type, buffer(15,1))
-            fan_proto:add_le(fan_cmd, buffer(16,2))
+            fan_proto:add(buffer(16,1), string.format("风扇编号: %s", buffer(16,1):uint()))
+            fan_proto:add(fan_cmd, buffer(17,1))
         --  PDU控制
         elseif function_code_hex == pdu_control_code_map.code  then
             local replay_proto = subtree:add(reply_proto, buffer(14, data_length_data))
