@@ -2,18 +2,51 @@ local bit = require("bit")   -- 已自带，直接 require
 -- 定义协议（协议标识符和显示名称）
 ofs_proto = Proto("ofs", "震动光纤服务协议")
 
+auth_valid = {
+    send = 0x00,
+    send_value= "用户身份识别请求",
+    recv = 0x01,
+    recv_value = "用户身份识别响应"
+}
+
+heartbeat_code = {
+    send = 0x02,
+    recv = 0x03,
+    send_value = "心跳请求",
+    recv_value = "心跳响应"
+}
+
+device_status_code = {
+    send = 0x06,
+    recv = 0x07,
+    send_value = "设备状态请求",
+    recv_value = "设备状态回复"
+}
+defence_control_code = {
+    send = 0x08,
+    recv = 0x09,
+    send_value = "布撤防控制",
+    recv_value = "布撤防回复"
+}
+log_control_code = {
+    send = 0x10,
+    recv = 0x11,
+    send_value = "日志上报",
+    recv_value = "日志上报回复"
+}
+
 -- 共用数据
 msg_type_map = {
-    [0x00] = "用户身份识别请求",
-    [0x01] = "用户身份识别相应",
-    [0x02] = "心跳请求",
-    [0x03] = "心跳响应",
-    [0x06] = "设备状态请求",
-    [0x07] = "设备状态回复",
-    [0x08] = "布撤防控制",
-    [0x09] = "布撤防回复",
-    [0x10] = "日志上报",
-    [0x11] = "日志上报回复"
+    [auth_valid.send] = auth_valid.send_value,
+    [auth_valid.recv] = auth_valid.recv_value,
+    [heartbeat_code.send] = heartbeat_code.send_value,
+    [heartbeat_code.recv] = heartbeat_code.recv_value,
+    [device_status_code.send] = device_status_code.send_value,
+    [device_status_code.recv] = device_status_code.recv_value,
+    [defence_control_code.send] = defence_control_code.send_value,
+    [defence_control_code.recv] = defence_control_code.recv_value,
+    [log_control_code.send] = log_control_code.send_value,
+    [log_control_code.recv] = log_control_code.recv_value
 }
 defence_status_map = {
     [0] = "撤防",
@@ -293,21 +326,23 @@ function ofs_proto.dissector(buffer, pinfo, tree)
     subtree:add(reserved, buffer(23, 1))  -- 预留数据
     subtree:add(sm3_checksum, buffer(24, 32))  -- 校验码
     local data_body_tree = subtree:add(data_body, buffer(56, data_length_int)) --消息体
-    if data_type_int == 0x00 then
+    if data_type_int == auth_valid.send then
 		-- 身份验证发送
         parser_auth_send(buffer(56, data_length_int),data_body_tree, data_length_int)
-	elseif data_type_int == 0x02 then
+	elseif data_type_int == heartbeat_code.send then
 		-- 心跳发送
 		parser_heartbeat_send(buffer(56, data_length_int),data_body_tree, data_length_int)
-    elseif data_type_int == 0x08 then
+    elseif data_type_int == defence_control_code.send then
         -- 布撤防控制
         parser_defence_send(buffer(56, data_length_int), data_body_tree, data_length_int)
-    elseif data_type_int == 0x10 then
+    elseif data_type_int == log_control_code.send then
         -- 日志控制
         parser_log_send(buffer(56, data_length_int), data_body_tree, data_length_int)
-        elseif data_type_int == 0x06 then
-
-    elseif (data_type_int == 0x01 or data_type_int == 0x03 or  data_type_int == 0x07 or data_type_int == 0x09 or data_type_int == 0x11) then
+    elseif data_type_int == device_status_code.send then
+        -- 设备状态
+        parser_device_status_send(buffer(56, data_length_int), data_body_tree, data_length_int)
+    elseif (data_type_int == auth_valid.recv or data_type_int == heartbeat_code.recv or  data_type_int == device_status_code.recv
+        or data_type_int == defence_control_code.recv or data_type_int == log_control_code.recv) then
 		-- 回复
 		parser_server_receive(buffer(56, data_length_int),data_body_tree, data_length_int)
 	end
