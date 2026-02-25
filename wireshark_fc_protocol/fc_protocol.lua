@@ -125,6 +125,17 @@ function_code_map = {
     [door_send_map.code] = door_send_map.value,
     [request_rtc_map.code] = request_rtc_map.value
 }
+air_status = {
+    [0] = "停止",
+    [1] = "运行",
+    [2] = "为选配"
+}
+base_conversion = {
+    [0] = "0 0",
+    [1] = "0 1",
+    [2] = "1 0"
+}
+
 function_code = ProtoField.uint16("fcprotocol.function_code", "功能码", base.HEX, function_code_map)
 -- 时间
 current_time  = ProtoField.none("fcprotocol.time", "当前时间") -- 时间
@@ -247,7 +258,7 @@ ups_battery_power_level_status = ProtoField.uint8("fcprotocol.ups_battery_power_
     [2] = "Depleted"
 })
 -- 充放电状态
-ups_battery_charge_status = ProtoField.uint8("fcprotocol.ups_battery_charge_status", "电池充放电状态", base.DEC, {
+ups_battery_charge_status = ProtoField.uint8("fcprotocol.ups_battery_charge_status", "电池供电状态", base.DEC, {
     [0] = "Obsolete",
     [1] = "Charging",
     [2] = "Resting",
@@ -258,12 +269,14 @@ ups_remain_minutes = ProtoField.uint16("fcprotocol.ups_remain_minutes", "电池�
 ups_remain_battery = ProtoField.uint16("fcprotocol.ups_remain_battery", "电池剩余电量(%)", base.DEC)
 ups_voltage_pre = ProtoField.uint16("fcprotocol.ups_voltage_pre", "电池电压(整数位)", base.DEC)
 ups_voltage_post = ProtoField.uint16("fcprotocol.ups_voltage_post", "电池电压(小数位)", base.DEC)
-ups_inner_temperature =   ProtoField.uint16("fcprotocol.ups_inner_temperature", "电池内部温度", base.DEC)
-ups_battery =   ProtoField.uint16("fcprotocol.ups_battery", "电池电量", base.DEC)
+ups_voltage = ProtoField.float("fcprotocol.ups_voltage", "电池电压(V)", base.DEC)
+ups_inner_temperature =   ProtoField.uint16("fcprotocol.ups_inner_temperature", "电池内部温度(℃)", base.DEC)
+ups_battery =   ProtoField.uint16("fcprotocol.ups_battery", "电池电量(%)", base.DEC)
 
 -- PDU数据
 pdu_proto = ProtoField.none("fcprotocol.pdu_proto", "PDU 数据")
 bit_value =ProtoField.bool("fcprotocol.bit_status", "Bit Status")
+
 
 -- 风扇控制
 fan_proto = ProtoField.none("fcprotocol.fan_proto", "风扇控制及协议")
@@ -306,6 +319,7 @@ collection_time_synchronization_method = ProtoField.uint8("fcprotocol.collection
     [2] = "域名"
 })
 time_synchronization_period= ProtoField.uint16("fcprotocol.time_synchronization_period", "校时周期(S)", base.DEC)
+air_data= ProtoField.none("fcprotocol.air", "空调数据")
 
 
 -- 定义协议字段（字段标识符、显示名称、数据格式）
@@ -316,7 +330,7 @@ fc_proto.fields = {collection_time_synchronization_method, time_synchronization_
     max_24_hour_rain_range, min_24_hour_rain, max_24_hour_rain, tem_data,hum_data,  sensor_id,  sensor_type, tem_and_hum_proto, crc_data_proto, light_proto,
     light_id, light_control_cmd, current_time, time_year, time_month,time_day,  time_hour, time_minute,time_second,  fc_execute_result,
     header, device_id, function_code, data_length, speaker_proto, speaker_id, speaker_voice_type, speaker_color, speaker_color_cmd,speaker_volume,
-    speaker_voice_cmd, speaker_playback_mode,intercom_proto,intercom_cmd,intercom_voice_type,g_net_proto ,g_net_cmd ,g_net_call_type,defence_cmd,sensor_exec_status
+    speaker_voice_cmd, speaker_playback_mode,intercom_proto,intercom_cmd,intercom_voice_type,g_net_proto ,g_net_cmd ,g_net_call_type,defence_cmd,sensor_exec_status,ups_voltage,air_data
 }
 
 function net_param_parser(subtree, buffer,data_length_data)
@@ -543,8 +557,9 @@ function fc_proto.dissector(buffer, pinfo, tree)
                 ups_proto:add_le(ups_charge_seconds, buffer(20, 2))
                 ups_proto:add_le(ups_remain_minutes, buffer(22, 2))
                 ups_proto:add_le(ups_remain_battery, buffer(24, 2))
-                ups_proto:add_le(ups_voltage_pre, buffer(26, 2))
-                ups_proto:add_le(ups_voltage_post, buffer(28, 2))
+                ups_proto:add_le(ups_voltage, buffer(26, 4))
+                --ups_proto:add_le(ups_voltage_pre, buffer(26, 2))
+                --ups_proto:add_le(ups_voltage_post, buffer(28, 2))
                 ups_proto:add_le(ups_inner_temperature, buffer(30, 2))
                 ups_proto:add_le(ups_battery, buffer(32, 2))
             end
@@ -587,7 +602,28 @@ function fc_proto.dissector(buffer, pinfo, tree)
         -- 网络参数
         elseif function_code_hex == net_param_get_code_map.code then
             net_param_parser(subtree, buffer,data_length_data )
-        -- 重启反馈
+        -- 空调
+        elseif function_code_hex == aircondition_code_map.code then
+
+            local air_proto = subtree:add(air_data,buffer(14, data_length_data))
+            air_proto:add(sensor_id, buffer(14,1))
+            air_proto:add(sensor_type, buffer(15,1))
+            air_proto:add(fc_execute_result, buffer(16,1))
+            local sensor_1 = buffer(17,1):int()
+            local sensor_2 = buffer(18,1):int()
+            local ari_total_status = bit.band(sensor_1, 3)
+            local ari_inner_fan_status = bit.band(bit.rshift(sensor_1, 2), 3)
+            local ari_out_fan_status = bit.band(bit.rshift(sensor_1, 4), 3)
+            local ari_compress_fan_status = bit.band(bit.rshift(sensor_1, 4), 3)
+            local ari_elect_heating_fan_status = bit.band(sensor_2 ,3)
+            local ari_emerge_fan_status = bit.band(bit.rshift(sensor_2, 2) ,3)
+            air_proto:add(buffer(17,1), string.format(". . . . . . %s (空调整机状态): %s", base_conversion[ari_total_status], air_status[ari_total_status]))
+            air_proto:add(buffer(17,1), string.format(". . . . %s . . (内风机状态): %s", base_conversion[ari_inner_fan_status], air_status[ari_inner_fan_status]))
+            air_proto:add(buffer(17,1), string.format(". . %s . . . . (外风机状态): %s", base_conversion[ari_out_fan_status], air_status[ari_out_fan_status]))
+            air_proto:add(buffer(17,1), string.format("%s . . . . . . (压缩机状态): %s", base_conversion[ari_compress_fan_status], air_status[ari_compress_fan_status]))
+            air_proto:add(buffer(18,1), string.format(". . . . . . %s (电加热机状态): %s", base_conversion[ari_elect_heating_fan_status], air_status[ari_elect_heating_fan_status]))
+            air_proto:add(buffer(18,1), string.format(". . . . %s . . (应急风机状态): %s", base_conversion[ari_emerge_fan_status], air_status[ari_emerge_fan_status]))
+            air_proto:add(buffer(19,data_length_data - 6), string.format("其他数据未解析"))
         end
     -- 解析QT数据部分
     elseif header_value_data == 0xe3e4
