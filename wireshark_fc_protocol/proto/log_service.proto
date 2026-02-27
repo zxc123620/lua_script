@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option java_outer_classname = "LogServiceProto";
+
+// 日志上报请求
+message UploadLogsRequest {
+  // 指令，固定为 "upload_logs"
+  string command = 1;
+
+  // 下发时间"
+  string send_time = 2;
+}
+
+// 日志上报响应
+message UploadLogsResponse {
+  // 状态码：200 成功，400 失败
+  int32 code = 1;
+
+  // 描述信息：成功时为 "ok"，失败时为具体错误描述
+  string message = 2;
+
+  // 设备编码
+  string device_code = 3;
+}

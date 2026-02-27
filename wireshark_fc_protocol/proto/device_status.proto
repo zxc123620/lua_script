@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option java_outer_classname = "DeviceStatusProto";
+
+// 设备状态信息
+message DeviceStatusRequest {
+  string device_code = 1;             // 设备编码
+  int32 defense = 2;                  // 布撤防状态：0=撤防, 1=布防
+  int32 is_online = 3;                // 在线状态：0=离线, 1=在线
+  string send_time = 4;               // 发送时间：yyyy-MM-dd HH:mm:ss
+
+  // 设备详细信息
+  DeviceInfo device_info = 5;
+}
+
+// 设备详细信息（嵌套消息）
+message DeviceInfo {
+  string cpu_usage = 1;               // CPU 使用率，如 "21%"
+  int32 mem_total = 2;                // 总内存，单位 GB
+  int32 mem_usage = 3;                // 已用内存，单位 GB
+  int32 mem_available = 4;            // 可用内存，单位 GB
+
+  int32 disk_total = 5;               // 硬盘总空间，单位 GB
+  int32 disk_usage = 6;               // 已用空间，单位 GB
+  int32 disk_available = 7;           // 剩余空间，单位 GB
+
+  int32 sensor_status = 8;             // 雷达通讯状态：1=正常, 2=异常
+  int32 camera_status = 9;            // 摄像机通讯状态：1=正常, 2=异常
+  int32 alarm_device_status = 10;     // 报警器通讯状态：0=未安装, 1=正常, 2=异常
+}
+
+
+// 设备状态上报响应
+message DeviceStatusResponse {
+  int32 code = 1;                     // 200: 成功, 400: 失败
+  string message = 2;                 // "ok" 或错误信息
+}
+

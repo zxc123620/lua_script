@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+option java_outer_classname = "HeartbeatProto";
+
+// 心跳请求
+message HeartbeatRequest {
+  string device_code = 1;  // 设备编码
+}
+
+// 心跳响应
+message HeartbeatResponse {
+  int32 code = 1;          // 200: 成功, 400: 失败
+  string message = 2;      // "ok" 或错误信息
+}

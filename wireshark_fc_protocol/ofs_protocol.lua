@@ -48,6 +48,49 @@ msg_type_map = {
     [log_control_code.send] = log_control_code.send_value,
     [log_control_code.recv] = log_control_code.recv_value
 }
+
+proto_code_map = {
+    [auth_valid.send] = {
+     ["file"] = "device_status.proto",
+     ["type"] = "message,AuthRequest"
+    },
+    [auth_valid.recv] = {
+     ["file"] = "device_status.proto",
+     ["type"] = "message,AuthResponse"
+    },
+    [heartbeat_code.send] = {
+     ["file"] = "heartbeat.proto",
+     ["type"] = "message,HeartbeatRequest"
+    },
+    [heartbeat_code.recv] = {
+     ["file"] = "heartbeat.proto",
+     ["type"] = "message,HeartbeatResponse"
+    },
+    [defence_control_code.send] = {
+     ["file"] = "alarm_control.proto",
+     ["type"] = "message,AlarmControlRequest"
+    },
+    [defence_control_code.recv] = {
+     ["file"] = "alarm_control.proto",
+     ["type"] = "message,AlarmControlResponse"
+    },
+    [log_control_code.send] = {
+     ["file"] = "log_service.proto",
+     ["type"] = "message,UploadLogsRequest"
+    },
+    [log_control_code.recv] = {
+     ["file"] = "log_service.proto",
+     ["type"] = "message,UploadLogsResponse"
+    },
+    [device_status_code.send] = {
+     ["file"] = "device_status.proto",
+     ["type"] = "message,DeviceStatusRequest"
+    },
+    [device_status_code.recv] = {
+     ["file"] = "device_status.proto",
+     ["type"] = "message,DeviceStatusResponse"
+    },
+}
 defence_status_map = {
     [0] = "撤防",
     [1] = "布防"
@@ -71,16 +114,17 @@ msg_type = ProtoField.uint16("ofs.msg_type", "消息类型", base.HEX,msg_type_m
 -- 长度
 data_length = ProtoField.int32("ofs.data_length", "数据长度", base.DEC)
  -- 时间戳
-timestamp = ProtoField.int64("ofs.time_stamp", "时间戳", base.DEC)
+--timestamp = ProtoField.int64("ofs.time_stamp", "时间戳", base.DEC)
+timestamp = ProtoField.absolute_time("ofs.time_stamp", "时间戳", base.LOCAL)
 timestamp_format = ProtoField.string("ofs.time_format", "时间戳解析", base.NONE)
 --随机数
-nonce = ProtoField.string("ofs.nonce", "随机数", base.NONE)
+nonce = ProtoField.bytes("ofs.nonce", "随机数", base.NONE)
 -- 预留
 reserved = ProtoField.uint8("ofs.reserved", "预留", base.HEX)
 -- 校验码
-sm3_checksum = ProtoField.string("ofs.sm3_check", "校验码", base.NONE)
+sm3_checksum = ProtoField.bytes("ofs.sm3_check", "校验码", base.NONE)
 -- 消息体
-data_body = ProtoField.string("ofs.body", "消息体", base.NONE)
+data_body = ProtoField.bytes("ofs.body", "消息体", base.NONE)
 -- 设备信息
 device_info = ProtoField.string("ofs.device_info", "设备信息", base.NONE)
 
@@ -276,7 +320,14 @@ end
 --        end
 --    end
 --end
-
+function file_exist(file_name, subtree)
+    local f = io.open(file_name, "r")
+        if not f then
+            subtree:add_expert_info(PI_ERROR, PI_UNSUPPORTED, "Proto 文件不存在：" .. proto_file)
+            return
+        end
+        f:close()
+end
 
 -- 核心解析函数
 function ofs_proto.dissector(buffer, pinfo, tree)
@@ -291,63 +342,68 @@ function ofs_proto.dissector(buffer, pinfo, tree)
     -- 创建协议子树
     local subtree = tree:add(ofs_proto, buffer(), "震动光纤服务协议")
 
+
     -- 解析字段并添加到树
     subtree:add(magic, buffer(0, 2))      -- 起始位
-    subtree:add_le(version, buffer(2, 2))      -- 版本号
-    subtree:add_le(seq_id, buffer(4, 2))      -- 序列号
+    subtree:add(version, buffer(2, 2))      -- 版本号
+    subtree:add(seq_id, buffer(4, 2))      -- 序列号
     local data_type_int = buffer(6, 1):uint()
     local function_code_str = msg_type_map[data_type_int] or string.format("未知(%02d)", data_type_int)
-    subtree:add_le(msg_type, buffer(6, 1))      -- 消息类型
+    subtree:add(msg_type, buffer(6, 1))      -- 消息类型
     local data_length_int = buffer(7,4):uint()
     subtree:add(data_length,buffer(7, 4)) -- 数据长度
-    local ts_uint64 = buffer(11, 8):uint64()
-    local ts_high = ts_uint64:higher()
-    local ts_low = ts_uint64:lower()
-    local ts_ms = 0
-    if ts_high == 0 then
-        -- 低32位即可表示，直接转换
-        ts_ms = ts_low
-    else
-        -- 高32位非0，组合计算（单位：毫秒）
-        ts_ms = (ts_high * 0x100000000) + ts_low
+    local timestamp_ms = buffer(11, 8):uint64()  -- 返回 UInt64 对象
+    local secs = timestamp_ms / 1000       -- 整数除法，得到秒
+    local nsecs = (timestamp_ms % 1000) * 1000000  -- 剩余毫秒转纳秒
+    local nstime = NSTime.new(secs:tonumber(), nsecs:tonumber())
+    subtree:add(timestamp, buffer(11, 8),nstime)  -- 时间戳
+    subtree:add(nonce,buffer(19, 4))  -- 随机数
+    subtree:add(reserved, buffer(23, 1))  -- 预留数据
+    subtree:add(sm3_checksum,buffer(24, 32))  -- 校验码
+    subtree:add(data_body, buffer(56, data_length_int)) --消息体
+
+    local pb_dissector = Dissector.get("protobuf")
+    if not pb_dissector then
+        subtree:add_expert_info(PI_ERROR, PI_UNSUPPORTED, "Protobuf dissector not found")
+        return
     end
 
-    -- 3. 转换为秒和毫秒（Unix时间戳：秒级）
-    local ts_sec = math.floor(ts_ms / 1000)
-    local ts_ms_remain = ts_ms % 1000
-
-    -- 4. 格式化为可读时间（UTC+8，可根据需求调整时区）
-    local time_str = os.date("%Y-%m-%d %H:%M:%S", ts_sec) .. "." .. string.format("%03d", ts_ms_remain)
-
-    -- 5. 将解析结果添加到Wireshark解析树
-    subtree:add(timestamp, buffer(11, 8))  -- 时间戳
-    subtree:add(timestamp_format, time_str):set_generated(true) -- 标记为生成字段 时间戳格式化
-    subtree:add(nonce, buffer(19, 4))  -- 随机数
-    subtree:add(reserved, buffer(23, 1))  -- 预留数据
-    subtree:add(sm3_checksum, buffer(24, 32))  -- 校验码
-    local data_body_tree = subtree:add(data_body, buffer(56, data_length_int)) --消息体
-    if data_type_int == auth_valid.send then
-		-- 身份验证发送
-        parser_auth_send(buffer(56, data_length_int),data_body_tree, data_length_int)
-	elseif data_type_int == heartbeat_code.send then
-		-- 心跳发送
-		parser_heartbeat_send(buffer(56, data_length_int),data_body_tree, data_length_int)
-    elseif data_type_int == defence_control_code.send then
-        -- 布撤防控制
-        parser_defence_send(buffer(56, data_length_int), data_body_tree, data_length_int)
-    elseif data_type_int == log_control_code.send then
-        -- 日志控制
-        parser_log_send(buffer(56, data_length_int), data_body_tree, data_length_int)
-    elseif data_type_int == device_status_code.send then
-        -- 设备状态
-        parser_device_status_send(buffer(56, data_length_int), data_body_tree, data_length_int)
-    elseif (data_type_int == auth_valid.recv or data_type_int == heartbeat_code.recv or  data_type_int == device_status_code.recv
-        or data_type_int == defence_control_code.recv or data_type_int == log_control_code.recv) then
-		-- 回复
-		parser_server_receive(buffer(56, data_length_int),data_body_tree, data_length_int)
-	end
+    -- 3. 配置解析参数（告诉解析器用哪个 .proto 和消息类型）
+    --local msg_type = "test.HeartBeat"  -- 包名+消息名
+    --pinfo.private["pb_msg_type"] = msg_type
+    -- 4. 调用解析器：解析结果会自动添加到 root_tree 中，无需手动加字段！
+    --pb_dissector:call(buffer(56, data_length_int):tvb(), pinfo, data_body_tree)
+    --
+    pinfo.private["pb_proto_file"] = proto_code_map[data_type_int]["file"]
+    pinfo.private["pb_msg_type"] = proto_code_map[data_type_int]["type"]
+    --if data_type_int == auth_valid.send then
+	--	-- 身份验证发送
+	--	pinfo.private["pb_proto_file"] = "auth.proto"
+    --    pinfo.private["pb_msg_type"] = "message,AuthRequest"
+    --    --pb_dissector:call(buffer(56, data_length_int):tvb(), pinfo, subtree)
+	--elseif data_type_int == heartbeat_code.send then
+	--	-- 心跳发送
+	--	pinfo.private["pb_proto_file"] = "heartbeat.proto"
+    --    pinfo.private["pb_msg_type"] = "message,HeartbeatRequest"
+    --    --pcall(Dissector.call, pb_dissector, buffer(56, data_length_int):tvb(), pinfo, subtree)
+    --elseif data_type_int == defence_control_code.send then
+    --    -- 布撤防控制
+    --    pinfo.private["pb_proto_file"] = "alarm_control.proto"
+    --    pinfo.private["pb_msg_type"] = "message,AlarmControlRequest"
+    --    --parser_defence_send(buffer(56, data_length_int), data_body_tree, data_length_int)
+    --elseif data_type_int == log_control_code.send then
+    --    -- 日志控制
+    --    pinfo.private["pb_proto_file"] = "log_service.proto"
+    --    pinfo.private["pb_msg_type"] = "message,UploadLogsRequest"
+    --    --parser_log_send(buffer(56, data_length_int), data_body_tree, data_length_int)
+    --elseif data_type_int == device_status_code.send then
+    --    -- 设备状态
+    --    pinfo.private["pb_proto_file"] = "device_status.proto"
+    --    pinfo.private["pb_msg_type"] = "message,DeviceStatusRequest"
+    --end
+    pcall(Dissector.call, pb_dissector, buffer(56, data_length_int):tvb(), pinfo, subtree)
     pinfo.cols.info = string.format("消息类型: %s", function_code_str)
 end
 -- 注册协议到指定端口
 local udp_table = DissectorTable.get("tcp.port")
-udp_table:add(5001, fc_proto)
+udp_table:add(7001, ofs_proto)

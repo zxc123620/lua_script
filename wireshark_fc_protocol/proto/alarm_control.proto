@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option java_outer_classname = "AlarmControlProto";
+
+// 现场报警设备控制请求 （布撤防）
+message AlarmControlRequest {
+  string device_code = 1;     // 设备编码
+  int32 defense = 2;          // 控制码：0=关闭，1=开启
+}
+
+// 现场报警设备控制响应（布撤防）
+message AlarmControlResponse {
+  int32 code = 1;             // 20以成功，400 失败
+  string message = 2;         // "ok" 或错误信息
+  string device_code = 3;     // 回执设备编码
+  int32 defense = 4;          // 回执控制状态：0=关闭，1=开启
+}

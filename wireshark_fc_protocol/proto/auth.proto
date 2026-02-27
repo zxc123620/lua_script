@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+option java_outer_classname = "AuthProto";
+
+
+// 用户注册 请求与响应
+
+message AuthRequest {
+  string device_code = 1;
+  string password = 2;
+}
+
+message AuthResponse {
+  int32 status = 1;
+  string message = 2;
+}
