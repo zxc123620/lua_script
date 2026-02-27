@@ -408,4 +408,4 @@ function ofs_proto.dissector(buffer, pinfo, tree)
 end
 -- 注册协议到指定端口
 local udp_table = DissectorTable.get("tcp.port")
-udp_table:add(7001, ofs_proto)
+udp_table:add(10009, ofs_proto)
