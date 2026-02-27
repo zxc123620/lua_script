@@ -331,6 +331,8 @@ end
 
 -- 核心解析函数
 function ofs_proto.dissector(buffer, pinfo, tree)
+    local src_port = pinfo.src_port  -- 源端口（数值类型，如 8080）
+    local dst_port = pinfo.dst_port  -- 目的端口（数值类型，如 12345）
     -- 检查数据包长度是否足够
     if buffer:len() < 4 then
         return
@@ -402,7 +404,7 @@ function ofs_proto.dissector(buffer, pinfo, tree)
     --    pinfo.private["pb_msg_type"] = "message,DeviceStatusRequest"
     --end
     pcall(Dissector.call, pb_dissector, buffer(56, data_length_int):tvb(), pinfo, subtree)
-    pinfo.cols.info = string.format("消息类型: %s", function_code_str)
+    pinfo.cols.info = string.format("%s -> %s 消息类型: %s", src_port, dst_port,function_code_str)
 end
 -- 注册协议到指定端口
 local udp_table = DissectorTable.get("tcp.port")
